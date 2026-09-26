@@ -1,0 +1,1 @@
+CREATE INDEX `idx_invoice_items_invoice_id` ON `invoice_items` (`invoice_id`);
