@@ -2158,8 +2158,25 @@ type InvoiceItem = {
   category: "service" | "part";
   description: string;
   quantity: number;
+  unit?: string;
   unitPrice: number;
 };
+
+const invoiceUnits = [
+  "Stk.",
+  "Std.",
+  "Liter",
+  "ml",
+  "kg",
+  "g",
+  "Meter",
+  "Satz",
+  "Pauschal",
+] as const;
+
+function defaultInvoiceUnit(category: InvoiceItem["category"]) {
+  return category === "service" ? "Std." : "Stk.";
+}
 
 function InvoiceManager({
   flash,
@@ -2176,7 +2193,13 @@ function InvoiceManager({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<InvoiceItem[]>([
-    { category: "service", description: "", quantity: 1, unitPrice: 0 },
+    {
+      category: "service",
+      description: "",
+      quantity: 1,
+      unit: "Std.",
+      unitPrice: 0,
+    },
   ]);
   const [vatEnabled, setVatEnabled] = useState(true);
   const [vatRate, setVatRate] = useState(19);
@@ -2354,7 +2377,10 @@ function InvoiceManager({
       : 0;
     setItems(
       invoice?.items?.length
-        ? invoice.items.map((item) => ({ ...item }))
+        ? invoice.items.map((item) => ({
+            ...item,
+            unit: item.unit || defaultInvoiceUnit(item.category),
+          }))
         : [
             {
               category: "service",
@@ -2362,6 +2388,7 @@ function InvoiceManager({
                 ? orderFor(invoice)?.task || "Arbeitsleistung"
                 : "",
               quantity: 1,
+              unit: "Std.",
               unitPrice: Math.round(legacyNetAmount * 100) / 100,
             },
           ],
@@ -2382,7 +2409,13 @@ function InvoiceManager({
   function addItem(category: "service" | "part") {
     setItems((current) => [
       ...current,
-      { category, description: "", quantity: 1, unitPrice: 0 },
+      {
+        category,
+        description: "",
+        quantity: 1,
+        unit: defaultInvoiceUnit(category),
+        unitPrice: 0,
+      },
     ]);
   }
 
@@ -2395,10 +2428,14 @@ function InvoiceManager({
       );
       return;
     }
+    const category = /ersatzteil|\bteil\b/i.test(transcript)
+      ? "part"
+      : "service";
     const item: InvoiceItem = {
-      category: /ersatzteil|\bteil\b/i.test(transcript) ? "part" : "service",
+      category,
       description,
       quantity: Math.max(0.01, parseGermanNumber(values.quantity, 1)),
+      unit: defaultInvoiceUnit(category),
       unitPrice: Math.max(0, parseGermanNumber(values.unitPrice, 0)),
     };
     setItems((current) =>
@@ -2752,11 +2789,17 @@ function InvoiceManager({
                   <select
                     aria-label="Positionsart"
                     value={item.category}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const category = e.target.value as "service" | "part";
+                      const currentUnit = item.unit || defaultInvoiceUnit(item.category);
                       updateItem(index, {
-                        category: e.target.value as "service" | "part",
-                      })
-                    }
+                        category,
+                        unit:
+                          currentUnit === "Std." || currentUnit === "Stk."
+                            ? defaultInvoiceUnit(category)
+                            : currentUnit,
+                      });
+                    }}
                   >
                     <option value="service">Arbeit</option>
                     <option value="part">Ersatzteil</option>
@@ -2781,6 +2824,17 @@ function InvoiceManager({
                     }
                     required
                   />
+                  <select
+                    aria-label="Einheit"
+                    value={item.unit || defaultInvoiceUnit(item.category)}
+                    onChange={(e) => updateItem(index, { unit: e.target.value })}
+                  >
+                    {invoiceUnits.map((unit) => (
+                      <option key={unit} value={unit}>
+                        {unit}
+                      </option>
+                    ))}
+                  </select>
                   <Input
                     aria-label="Einzelpreis"
                     type="number"
@@ -3086,7 +3140,7 @@ function InvoicePrintSheet({
                   <strong>{item.description}</strong>
                 </td>
                 <td>{item.quantity.toLocaleString("de-DE")}</td>
-                <td>{item.category === "service" ? "Std." : "Stk."}</td>
+                <td>{item.unit || defaultInvoiceUnit(item.category)}</td>
                 <td>{euro.format(item.unitPrice)}</td>
                 <td>{euro.format(item.quantity * item.unitPrice)}</td>
               </tr>
@@ -4024,6 +4078,8 @@ function SettingsForm({ flash }: { flash: (message: string) => void }) {
     invoicePrefix: "RE",
     estimatePrefix: "KV",
   });
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
@@ -4043,6 +4099,28 @@ function SettingsForm({ flash }: { flash: (message: string) => void }) {
         ? "Firmendaten wurden gespeichert"
         : "Firmendaten konnten nicht gespeichert werden",
     );
+  }
+  async function resetTestDocuments() {
+    setResetting(true);
+    try {
+      const response = await fetch("/api/invoices/reset", { method: "POST" });
+      const result = (await response.json().catch(() => null)) as {
+        deleted?: number;
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        flash(result?.error ?? "Testdokumente konnten nicht zurückgesetzt werden");
+        return;
+      }
+      setResetOpen(false);
+      flash(
+        `${result?.deleted ?? 0} Testdokument${result?.deleted === 1 ? " wurde" : "e wurden"} gelöscht. Die Nummerierung beginnt wieder bei 0001.`,
+      );
+    } catch {
+      flash("Testdokumente konnten nicht zurückgesetzt werden");
+    } finally {
+      setResetting(false);
+    }
   }
   const field = (name: string, label: string, type = "text") => (
     <label>
@@ -4111,6 +4189,48 @@ function SettingsForm({ flash }: { flash: (message: string) => void }) {
           <Button type="submit">Einstellungen speichern</Button>
         </div>
       </form>
+      <section className="settings-danger-zone">
+        <div>
+          <h3>Testphase zurücksetzen</h3>
+          <p>
+            Löscht alle Beispielrechnungen und Kostenvoranschläge. Kunden,
+            Fahrzeuge, Termine, Lager und Firmendaten bleiben erhalten. Die
+            Nummerierung beginnt anschließend wieder bei 0001.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="destructive"
+          onClick={() => setResetOpen(true)}
+        >
+          Rechnungen zurücksetzen
+        </Button>
+      </section>
+      <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Alle Testdokumente löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Alle Rechnungen und Kostenvoranschläge einschließlich ihrer
+              Positionen werden dauerhaft gelöscht. Dieser Vorgang kann nicht
+              rückgängig gemacht werden. Die nächste Nummer beginnt wieder bei
+              0001.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resetting}>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={resetting}
+              onClick={(event) => {
+                event.preventDefault();
+                void resetTestDocuments();
+              }}
+            >
+              {resetting ? "Wird zurückgesetzt …" : "Ja, Testdaten löschen"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

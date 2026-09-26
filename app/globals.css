@@ -136,12 +136,47 @@ body {
   justify-content: flex-end;
   margin-top: 22px;
 }
+.settings-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 1000px;
+  margin-top: 20px;
+  padding: 20px 24px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fff7f7;
+}
+.settings-danger-zone h3 {
+  margin: 0 0 6px;
+  color: #991b1b;
+  font-size: 15px;
+}
+.settings-danger-zone p {
+  max-width: 680px;
+  margin: 0;
+  color: #6b2830;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.settings-danger-zone button {
+  flex: 0 0 auto;
+}
 @media (max-width: 650px) {
   .settings-grid {
     grid-template-columns: 1fr;
   }
   .settings-card {
     padding: 17px;
+  }
+  .settings-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 17px;
+  }
+  .settings-danger-zone button {
+    width: 100%;
   }
 }
 
@@ -1544,7 +1579,7 @@ header h1 {
 }
 .invoice-item-row {
   display: grid;
-  grid-template-columns: 105px minmax(180px, 1fr) 80px 105px 105px 34px;
+  grid-template-columns: 105px minmax(170px, 1fr) 75px 90px 105px 105px 34px;
   gap: 8px;
   align-items: center;
 }

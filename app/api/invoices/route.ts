@@ -14,6 +14,7 @@ type ItemPayload = {
   category: string;
   description: string;
   quantity: number | string;
+  unit?: string;
   unitPrice: number | string;
 };
 
@@ -34,12 +35,18 @@ type InvoicePayload = {
 
 function parseItems(items: ItemPayload[] | undefined) {
   return (items ?? [])
-    .map((item) => ({
-      category: item.category === "part" ? "part" : "service",
-      description: String(item.description ?? "").trim(),
-      quantity: Number(item.quantity),
-      unitPrice: Number(item.unitPrice),
-    }))
+    .map((item) => {
+      const category = item.category === "part" ? "part" : "service";
+      return {
+        category,
+        description: String(item.description ?? "").trim(),
+        quantity: Number(item.quantity),
+        unit:
+          String(item.unit ?? "").trim().slice(0, 20) ||
+          (category === "service" ? "Std." : "Stk."),
+        unitPrice: Number(item.unitPrice),
+      };
+    })
     .filter((item) => item.description && item.quantity > 0 && Number.isFinite(item.unitPrice));
 }
 
