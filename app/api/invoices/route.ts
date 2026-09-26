@@ -26,12 +26,24 @@ type InvoicePayload = {
   type?: string;
   status?: string;
   dueAt?: string;
+  issuedAt?: string;
+  serviceDate?: string;
   vatEnabled?: boolean;
   vatRate?: number | string;
   paymentMethod?: string;
   paidNow?: boolean | string;
   items?: ItemPayload[];
 };
+
+function validDate(value: unknown) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function addDays(dateValue: string, days: number) {
+  const date = new Date(`${dateValue}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
 function parseItems(items: ItemPayload[] | undefined) {
   return (items ?? [])
@@ -77,6 +89,12 @@ export async function POST(request: Request) {
   const vatRate = Math.max(0, Number(payload.vatRate) || 19);
   const paymentMethod = payload.paymentMethod === "bar" ? "bar" : "ueberweisung";
   const paidNow = payload.paidNow === true || payload.paidNow === "on";
+  const issuedAt = validDate(payload.issuedAt)
+    ? payload.issuedAt!
+    : new Date().toISOString().slice(0, 10);
+  const serviceDate = validDate(payload.serviceDate)
+    ? payload.serviceDate!
+    : issuedAt;
   const calculated = totals(items, vatEnabled, vatRate);
   if (!items.length || calculated.subtotal <= 0)
     return Response.json({ error: "Bitte mindestens eine gültige Position angeben" }, { status: 400 });
@@ -93,7 +111,6 @@ export async function POST(request: Request) {
         ...state.workOrders,
         ...state.invoices.map((invoice) => ({ id: invoice.workOrderId })),
       ]);
-      const issuedAt = new Date().toISOString().slice(0, 10);
       state.workOrders.push({
         id: workOrderId, customer: customer.name,
         car: `${vehicle.make} ${vehicle.model}`.trim(), plate: vehicle.plate,
@@ -107,7 +124,7 @@ export async function POST(request: Request) {
 
     const settings = state.settings;
     const prefix = type === "kostenvoranschlag" ? settings?.estimatePrefix || "KV" : settings?.invoicePrefix || "RE";
-    const year = new Date().getUTCFullYear();
+    const year = Number(issuedAt.slice(0, 4));
     const numberBase = `${prefix}-${year}-`;
     const used = new Set(
       state.invoices
@@ -118,11 +135,15 @@ export async function POST(request: Request) {
     while (used.has(sequence)) sequence += 1;
     const number = `${numberBase}${String(sequence).padStart(4, "0")}`;
     const today = new Date().toISOString().slice(0, 10);
+    const paymentDays = Math.max(0, Number(settings?.paymentDays) || 14);
+    const dueAt = validDate(payload.dueAt)
+      ? payload.dueAt!
+      : addDays(issuedAt, paymentDays);
     const invoice = {
       id: nextId(state.invoices), workOrderId, number, type,
       amount: calculated.amount,
       status: type === "kostenvoranschlag" ? "entwurf" : paidNow ? "bezahlt" : "offen",
-      dueAt: payload.dueAt || null, issuedAt: today,
+      dueAt, issuedAt, serviceDate,
       paidAt: paidNow ? today : null, paymentMethod, vatEnabled, vatRate,
     };
     state.invoices.push(invoice);
@@ -148,6 +169,10 @@ export async function PUT(request: Request) {
   const vatEnabled = payload.vatEnabled !== false;
   const vatRate = Math.max(0, Number(payload.vatRate) || 19);
   const paymentMethod = payload.paymentMethod === "bar" ? "bar" : "ueberweisung";
+  const issuedAt = validDate(payload.issuedAt) ? payload.issuedAt! : undefined;
+  const serviceDate = validDate(payload.serviceDate)
+    ? payload.serviceDate!
+    : issuedAt;
   const calculated = totals(items, vatEnabled, vatRate);
   if (!Number.isInteger(id) || !items.length || calculated.subtotal <= 0 || !allowedStatuses.includes(payload.status ?? ""))
     return Response.json({ error: "Bitte gültige Positionen und einen Status angeben" }, { status: 400 });
@@ -158,7 +183,10 @@ export async function PUT(request: Request) {
     const paidAt = payload.status === "bezahlt" ? existing.paidAt || new Date().toISOString().slice(0, 10) : null;
     state.invoices[index] = {
       ...existing, amount: calculated.amount, status: payload.status!,
-      dueAt: payload.dueAt || null, paidAt, paymentMethod, vatEnabled, vatRate,
+      dueAt: validDate(payload.dueAt) ? payload.dueAt! : existing.dueAt,
+      issuedAt: issuedAt ?? existing.issuedAt,
+      serviceDate: serviceDate ?? existing.serviceDate ?? existing.issuedAt,
+      paidAt, paymentMethod, vatEnabled, vatRate,
     };
     state.invoiceItems = state.invoiceItems.filter((item) => item.invoiceId !== id);
     let itemId = nextId(state.invoiceItems);
@@ -168,6 +196,33 @@ export async function PUT(request: Request) {
   });
   return result
     ? Response.json({ invoice: { ...result.invoice, items: result.items, ...calculated } })
+    : Response.json({ error: "Dokument wurde nicht gefunden" }, { status: 404 });
+}
+
+export async function PATCH(request: Request) {
+  const payload = (await request.json()) as InvoicePayload;
+  const id = Number(payload.id);
+  const status = payload.status ?? "";
+  if (!Number.isInteger(id) || !allowedStatuses.includes(status))
+    return Response.json({ error: "Ungültiger Rechnungsstatus" }, { status: 400 });
+
+  const invoice = await updateState((state) => {
+    const index = state.invoices.findIndex((item) => item.id === id);
+    if (index < 0) return null;
+    const existing = state.invoices[index];
+    state.invoices[index] = {
+      ...existing,
+      status,
+      paidAt:
+        status === "bezahlt"
+          ? existing.paidAt || new Date().toISOString().slice(0, 10)
+          : null,
+    };
+    return state.invoices[index];
+  });
+
+  return invoice
+    ? Response.json({ invoice })
     : Response.json({ error: "Dokument wurde nicht gefunden" }, { status: 404 });
 }
 

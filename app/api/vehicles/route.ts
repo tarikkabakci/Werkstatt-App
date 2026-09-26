@@ -9,6 +9,8 @@ function values(payload: Record<string, string>) {
     model: payload.model.trim(),
     vin: payload.vin?.trim(),
     mileage: Math.max(0, Number(payload.mileage) || 0),
+    tuvDueAt: payload.tuvDueAt || null,
+    auDueAt: payload.auDueAt || null,
   };
 }
 

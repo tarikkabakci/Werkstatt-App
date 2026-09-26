@@ -1505,6 +1505,8 @@ type Vehicle = {
   model: string;
   vin: string | null;
   mileage: number | null;
+  tuvDueAt?: string | null;
+  auDueAt?: string | null;
   registrationImageKey: string | null;
   registrationImageName: string | null;
   registrationImageType: string | null;
@@ -1720,6 +1722,8 @@ function CustomerVehicleManager({
       vehicle.make,
       vehicle.model,
       vehicle.vin,
+      vehicle.tuvDueAt,
+      vehicle.auDueAt,
       customers.find((customer) => customer.id === vehicle.customerId)?.name,
     ]
       .join(" ")
@@ -1824,6 +1828,7 @@ function CustomerVehicleManager({
                 <th>Kennzeichen</th>
                 <th>Kunde</th>
                 <th>Kilometer</th>
+                <th>TÜV / AU</th>
                 <th>Fahrzeugschein</th>
               </tr>
             </thead>
@@ -1853,6 +1858,20 @@ function CustomerVehicleManager({
                   </td>
                   <td>
                     {Number(vehicle.mileage ?? 0).toLocaleString("de-DE")} km
+                  </td>
+                  <td>
+                    <span className="vehicle-inspection-dates">
+                      <small>
+                        TÜV: {vehicle.tuvDueAt
+                          ? new Date(`${vehicle.tuvDueAt}T12:00:00`).toLocaleDateString("de-DE")
+                          : "–"}
+                      </small>
+                      <small>
+                        AU: {vehicle.auDueAt
+                          ? new Date(`${vehicle.auDueAt}T12:00:00`).toLocaleDateString("de-DE")
+                          : "–"}
+                      </small>
+                    </span>
                   </td>
                   <td>
                     {vehicle.registrationImageKey ? (
@@ -2068,6 +2087,24 @@ function CustomerVehicleManager({
                 defaultValue={editingVehicle?.mileage ?? 0}
               />
             </label>
+            <div className="form-grid">
+              <label>
+                TÜV gültig bis
+                <Input
+                  name="tuvDueAt"
+                  type="date"
+                  defaultValue={editingVehicle?.tuvDueAt ?? ""}
+                />
+              </label>
+              <label>
+                AU gültig bis
+                <Input
+                  name="auDueAt"
+                  type="date"
+                  defaultValue={editingVehicle?.auDueAt ?? ""}
+                />
+              </label>
+            </div>
             <label className="vehicle-document-upload">
               Fahrzeugschein-Foto
               <Input
@@ -2145,6 +2182,7 @@ type Invoice = {
   status: string;
   dueAt: string | null;
   issuedAt: string;
+  serviceDate?: string | null;
   paidAt: string | null;
   paymentMethod: "ueberweisung" | "bar";
   vatEnabled: boolean;
@@ -2176,6 +2214,16 @@ const invoiceUnits = [
 
 function defaultInvoiceUnit(category: InvoiceItem["category"]) {
   return category === "service" ? "Std." : "Stk.";
+}
+
+function todayDateValue() {
+  return new Date().toLocaleDateString("sv-SE");
+}
+
+function addCalendarDays(dateValue: string, days: number) {
+  const date = new Date(`${dateValue}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toLocaleDateString("sv-SE");
 }
 
 function InvoiceManager({
@@ -2213,6 +2261,11 @@ function InvoiceManager({
   const [invoiceVehicleId, setInvoiceVehicleId] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [statusSavingId, setStatusSavingId] = useState<number | null>(null);
+  const [issuedDate, setIssuedDate] = useState(todayDateValue());
+  const [serviceDate, setServiceDate] = useState(todayDateValue());
+  const [dueDate, setDueDate] = useState(addCalendarDays(todayDateValue(), 14));
+  const [dueDateManuallyChanged, setDueDateManuallyChanged] = useState(false);
 
   async function load() {
     try {
@@ -2367,6 +2420,31 @@ function InvoiceManager({
     }
   }
 
+  async function updateStatus(invoice: Invoice, status: string) {
+    if (status === invoice.status || statusSavingId === invoice.id) return;
+    setStatusSavingId(invoice.id);
+    try {
+      const response = await fetch("/api/invoices", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: invoice.id, status }),
+      });
+      if (!response.ok) {
+        flash(await responseError(response, "Status konnte nicht geändert werden"));
+        return;
+      }
+      const data = await response.json();
+      setRows((current) =>
+        current.map((row) =>
+          row.id === invoice.id ? { ...row, ...data.invoice } : row,
+        ),
+      );
+      flash(`Status von ${invoice.number} wurde geändert`);
+    } finally {
+      setStatusSavingId(null);
+    }
+  }
+
   function show(invoice?: Invoice) {
     setEditing(invoice ?? null);
     const invoiceVatEnabled = invoice?.vatEnabled ?? true;
@@ -2395,6 +2473,16 @@ function InvoiceManager({
     );
     setVatEnabled(invoiceVatEnabled);
     setVatRate(invoiceVatRate);
+    const nextIssuedDate = invoice?.issuedAt || todayDateValue();
+    const paymentDays = Math.max(0, Number(settings.paymentDays) || 14);
+    setIssuedDate(nextIssuedDate);
+    setServiceDate(
+      invoice?.serviceDate ||
+        (invoice ? orderFor(invoice)?.date : undefined) ||
+        nextIssuedDate,
+    );
+    setDueDate(invoice?.dueAt || addCalendarDays(nextIssuedDate, paymentDays));
+    setDueDateManuallyChanged(Boolean(invoice?.dueAt));
     setOpen(true);
   }
 
@@ -2538,15 +2626,11 @@ function InvoiceManager({
     0,
   );
   const vatAmount = vatEnabled ? subtotal * (vatRate / 100) : 0;
-  const defaultDueDate = (() => {
-    const date = new Date();
-    date.setDate(date.getDate() + 14);
-    return date.toLocaleDateString("sv-SE");
-  })();
-  const statusOptions =
-    editing?.type === "kostenvoranschlag"
+  const statusOptionsFor = (type?: string) =>
+    type === "kostenvoranschlag"
       ? ["entwurf", "angenommen", "abgelehnt"]
       : ["offen", "bezahlt", "storniert"];
+  const statusOptions = statusOptionsFor(editing?.type);
 
   return (
     <div className="module-page invoice-page">
@@ -2662,10 +2746,24 @@ function InvoiceManager({
                       : "–"}
                   </td>
                   <td>
-                    <Badge className={`invoice-status ${invoice.status}`}>
-                      {invoice.status.charAt(0).toUpperCase() +
-                        invoice.status.slice(1)}
-                    </Badge>
+                    <select
+                      className={`invoice-status-select ${invoice.status}`}
+                      aria-label={`Status von ${invoice.number}`}
+                      value={invoice.status}
+                      disabled={statusSavingId === invoice.id}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        void updateStatus(invoice, event.target.value);
+                      }}
+                    >
+                      {statusOptionsFor(invoice.type).map((status) => (
+                        <option value={status} key={status}>
+                          {status.charAt(0).toUpperCase() + status.slice(1)}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                 </tr>
               );
@@ -2894,14 +2992,54 @@ function InvoiceManager({
                 Gesamt <strong>{euro.format(subtotal + vatAmount)}</strong>
               </span>
             </div>
-            <label>
-              Fällig am
-              <Input
-                name="dueAt"
-                type="date"
-                defaultValue={editing?.dueAt ?? defaultDueDate}
-              />
-            </label>
+            <div className="form-grid invoice-date-fields">
+              <label>
+                Rechnungsdatum
+                <Input
+                  name="issuedAt"
+                  type="date"
+                  value={issuedDate}
+                  onChange={(event) => {
+                    const nextDate = event.target.value;
+                    const previousDate = issuedDate;
+                    setIssuedDate(nextDate);
+                    if (serviceDate === previousDate) setServiceDate(nextDate);
+                    if (!dueDateManuallyChanged && nextDate) {
+                      setDueDate(
+                        addCalendarDays(
+                          nextDate,
+                          Math.max(0, Number(settings.paymentDays) || 14),
+                        ),
+                      );
+                    }
+                  }}
+                  required
+                />
+              </label>
+              <label>
+                Leistungsdatum
+                <Input
+                  name="serviceDate"
+                  type="date"
+                  value={serviceDate}
+                  onChange={(event) => setServiceDate(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Fällig am
+                <Input
+                  name="dueAt"
+                  type="date"
+                  value={dueDate}
+                  onChange={(event) => {
+                    setDueDate(event.target.value);
+                    setDueDateManuallyChanged(true);
+                  }}
+                  required
+                />
+              </label>
+            </div>
             <label>
               Zahlungsart
               <select
@@ -2930,18 +3068,20 @@ function InvoiceManager({
                 </select>
               </label>
             )}
-            <div className="edit-actions">
+            <div className="edit-actions invoice-edit-actions">
               {editing && (
-                <div className="invoice-secondary-actions">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={() => setDeleteOpen(true)}
-                  >
-                    {editing.type === "kostenvoranschlag"
-                      ? "Kostenvoranschlag löschen"
-                      : "Rechnung löschen"}
-                  </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  {editing.type === "kostenvoranschlag"
+                    ? "Kostenvoranschlag löschen"
+                    : "Rechnung löschen"}
+                </Button>
+              )}
+              <div className="invoice-primary-actions">
+                {editing && (
                   <Button
                     type="button"
                     variant="outline"
@@ -2952,16 +3092,19 @@ function InvoiceManager({
                         vatEnabled,
                         vatRate,
                         amount: subtotal + vatAmount,
+                        issuedAt: issuedDate,
+                        serviceDate,
+                        dueAt: dueDate,
                       })
                     }
                   >
                     Drucken
                   </Button>
-                </div>
-              )}
-              <Button type="submit">
-                {editing ? "Änderungen speichern" : "Dokument erstellen"}
-              </Button>
+                )}
+                <Button type="submit">
+                  {editing ? "Änderungen speichern" : "Dokument erstellen"}
+                </Button>
+              </div>
             </div>
           </form>
         </DialogContent>
@@ -3087,7 +3230,10 @@ function InvoicePrintSheet({
         <dl className="invoice-document-meta">
           <div><dt>Rechnungsnummer</dt><dd>{invoice.number}</dd></div>
           <div><dt>Rechnungsdatum</dt><dd>{formatDate(issuedAt)}</dd></div>
-          <div><dt>Leistungsdatum</dt><dd>{formatDate(order?.date)}</dd></div>
+          <div>
+            <dt>Leistungsdatum</dt>
+            <dd>{formatDate(invoice.serviceDate || order?.date || issuedAt)}</dd>
+          </div>
           {invoice.dueAt && <div><dt>Fällig am</dt><dd>{formatDate(invoice.dueAt)}</dd></div>}
         </dl>
       </section>

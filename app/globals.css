@@ -228,8 +228,18 @@ body {
 .edit-actions {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   margin-top: 4px;
+}
+.vehicle-inspection-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  white-space: nowrap;
+}
+.vehicle-inspection-dates small {
+  color: #526176;
 }
 .clickable-row {
   cursor: pointer;
@@ -1556,6 +1566,38 @@ header h1 {
   background: #fee9e9;
   color: #bb3434;
 }
+.invoice-status-select {
+  min-width: 116px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 28px 0 11px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.invoice-status-select.offen,
+.invoice-status-select.entwurf {
+  border-color: #f2d49f;
+  background: #fff2dc;
+  color: #a9600d;
+}
+.invoice-status-select.bezahlt,
+.invoice-status-select.angenommen {
+  border-color: #b6e6cd;
+  background: #e3f8ed;
+  color: #178554;
+}
+.invoice-status-select.storniert,
+.invoice-status-select.abgelehnt {
+  border-color: #f3c2c2;
+  background: #fee9e9;
+  color: #bb3434;
+}
+.invoice-status-select:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
 .invoice-editor-dialog {
   width: min(920px, calc(100vw - 28px));
   max-width: 920px;
@@ -1573,6 +1615,13 @@ header h1 {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+.invoice-primary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
 }
 .invoice-items-head button svg {
   width: 15px;
@@ -1745,6 +1794,15 @@ header h1 {
   .invoice-secondary-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+  .invoice-primary-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+    margin-left: 0;
+  }
+  .invoice-primary-actions button {
+    width: 100%;
   }
   .module-toolbar {
     align-items: flex-start;

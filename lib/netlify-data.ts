@@ -21,6 +21,8 @@ export type VehicleRecord = {
   model: string;
   vin?: string;
   mileage: number;
+  tuvDueAt?: string | null;
+  auDueAt?: string | null;
   registrationImageKey?: string | null;
   registrationImageName?: string | null;
   registrationImageType?: string | null;
@@ -68,6 +70,7 @@ export type InvoiceRecord = {
   status: string;
   dueAt: string | null;
   issuedAt: string;
+  serviceDate?: string | null;
   paidAt: string | null;
   paymentMethod: string;
   vatEnabled: boolean;
