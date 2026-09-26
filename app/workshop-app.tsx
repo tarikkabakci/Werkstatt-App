@@ -442,6 +442,7 @@ export default function WorkshopApp({ userEmail }: { userEmail: string }) {
             showCalendar={() => setActive("Termine")}
             showInvoices={() => setActive("Rechnungen")}
             showInventory={() => setActive("Lager")}
+            showVehicles={() => setActive("Kunden & Fahrzeuge")}
           />
         ) : active === "Termine" ? (
           <AppointmentManager
@@ -686,6 +687,7 @@ function Dashboard({
   showCalendar,
   showInvoices,
   showInventory,
+  showVehicles,
 }: {
   orders: Order[];
   create: () => void;
@@ -693,12 +695,14 @@ function Dashboard({
   showCalendar: () => void;
   showInvoices: () => void;
   showInventory: () => void;
+  showVehicles: () => void;
 }) {
   const [dashboardAppointments, setDashboardAppointments] = useState<
     Appointment[]
   >([]);
   const [inventoryWarnings, setInventoryWarnings] = useState(0);
   const [dashboardInvoices, setDashboardInvoices] = useState<Invoice[]>([]);
+  const [dashboardVehicles, setDashboardVehicles] = useState<Vehicle[]>([]);
   useEffect(() => {
     fetch("/api/appointments", { cache: "no-store" })
       .then((r) => r.json())
@@ -745,6 +749,12 @@ function Dashboard({
       .then((data) => setDashboardInvoices(data.invoices ?? []))
       .catch(() => setDashboardInvoices([]));
   }, []);
+  useEffect(() => {
+    fetch("/api/vehicles", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data) => setDashboardVehicles(data.vehicles ?? []))
+      .catch(() => setDashboardVehicles([]));
+  }, []);
   const today = new Date().toLocaleDateString("sv-SE");
   const todayAppointments = dashboardAppointments.filter(
     (a) => a.startsAt.slice(0, 10) === today,
@@ -767,6 +777,19 @@ function Dashboard({
       Boolean(invoice.dueAt) &&
       invoice.dueAt! < today,
   ).length;
+  const inspectionCutoff = new Date(`${today}T12:00:00`);
+  inspectionCutoff.setDate(inspectionCutoff.getDate() + 30);
+  const inspectionCutoffValue = inspectionCutoff.toLocaleDateString("sv-SE");
+  const dueInspections = dashboardVehicles
+    .flatMap((vehicle) => [
+      ...(vehicle.tuvDueAt && vehicle.tuvDueAt <= inspectionCutoffValue
+        ? [{ vehicle, kind: "TÜV", date: vehicle.tuvDueAt }]
+        : []),
+      ...(vehicle.auDueAt && vehicle.auDueAt <= inspectionCutoffValue
+        ? [{ vehicle, kind: "AU", date: vehicle.auDueAt }]
+        : []),
+    ])
+    .sort((a, b) => a.date.localeCompare(b.date));
   const euro = new Intl.NumberFormat("de-DE", {
     style: "currency",
     currency: "EUR",
@@ -935,7 +958,9 @@ function Dashboard({
               <h3>Handlungsbedarf</h3>
               <p>Aktueller Stand</p>
             </div>
-            <Badge>{overdueInvoices + inventoryWarnings} offen</Badge>
+            <Badge>
+              {overdueInvoices + inventoryWarnings + dueInspections.length} offen
+            </Badge>
           </div>
           <button
             type="button"
@@ -958,6 +983,22 @@ function Dashboard({
             <p>
               <strong>Lager nachbestellen</strong>
               <small>{inventoryWarnings} Artikel</small>
+            </p>
+            <span className="reminder-open">Öffnen</span>
+          </button>
+          <button
+            type="button"
+            className="reminder-action"
+            onClick={showVehicles}
+          >
+            <span className="round orange" aria-hidden="true">HU</span>
+            <p>
+              <strong>TÜV / AU fällig</strong>
+              <small>
+                {dueInspections.length
+                  ? `${dueInspections.length} Termin${dueInspections.length === 1 ? "" : "e"} · ${dueInspections[0].vehicle.plate} ${dueInspections[0].kind} ${new Date(`${dueInspections[0].date}T12:00:00`).toLocaleDateString("de-DE")}`
+                  : "Keine Fälligkeit in den nächsten 30 Tagen"}
+              </small>
             </p>
             <span className="reminder-open">Öffnen</span>
           </button>
@@ -2183,6 +2224,10 @@ type Invoice = {
   dueAt: string | null;
   issuedAt: string;
   serviceDate?: string | null;
+  installmentEnabled?: boolean;
+  installmentMonths?: number | null;
+  installmentAmount?: number | null;
+  installmentStartDate?: string | null;
   paidAt: string | null;
   paymentMethod: "ueberweisung" | "bar";
   vatEnabled: boolean;
@@ -2201,15 +2246,7 @@ type InvoiceItem = {
 };
 
 const invoiceUnits = [
-  "Stk.",
-  "Std.",
-  "Liter",
-  "ml",
-  "kg",
-  "g",
-  "Meter",
-  "Satz",
-  "Pauschal",
+  "Stk.", "Std.", "Liter", "ml", "kg", "g", "Meter", "Satz", "Pauschal",
 ] as const;
 
 function defaultInvoiceUnit(category: InvoiceItem["category"]) {
@@ -2241,13 +2278,7 @@ function InvoiceManager({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<InvoiceItem[]>([
-    {
-      category: "service",
-      description: "",
-      quantity: 1,
-      unit: "Std.",
-      unitPrice: 0,
-    },
+    { category: "service", description: "", quantity: 1, unit: "Std.", unitPrice: 0 },
   ]);
   const [vatEnabled, setVatEnabled] = useState(true);
   const [vatRate, setVatRate] = useState(19);
@@ -2266,6 +2297,11 @@ function InvoiceManager({
   const [serviceDate, setServiceDate] = useState(todayDateValue());
   const [dueDate, setDueDate] = useState(addCalendarDays(todayDateValue(), 14));
   const [dueDateManuallyChanged, setDueDateManuallyChanged] = useState(false);
+  const [documentType, setDocumentType] = useState("rechnung");
+  const [installmentEnabled, setInstallmentEnabled] = useState(false);
+  const [installmentMonths, setInstallmentMonths] = useState(3);
+  const [installmentAmount, setInstallmentAmount] = useState(0);
+  const [installmentStartDate, setInstallmentStartDate] = useState(todayDateValue());
 
   async function load() {
     try {
@@ -2435,9 +2471,7 @@ function InvoiceManager({
       }
       const data = await response.json();
       setRows((current) =>
-        current.map((row) =>
-          row.id === invoice.id ? { ...row, ...data.invoice } : row,
-        ),
+        current.map((row) => row.id === invoice.id ? { ...row, ...data.invoice } : row),
       );
       flash(`Status von ${invoice.number} wurde geändert`);
     } finally {
@@ -2477,12 +2511,15 @@ function InvoiceManager({
     const paymentDays = Math.max(0, Number(settings.paymentDays) || 14);
     setIssuedDate(nextIssuedDate);
     setServiceDate(
-      invoice?.serviceDate ||
-        (invoice ? orderFor(invoice)?.date : undefined) ||
-        nextIssuedDate,
+      invoice?.serviceDate || (invoice ? orderFor(invoice)?.date : undefined) || nextIssuedDate,
     );
     setDueDate(invoice?.dueAt || addCalendarDays(nextIssuedDate, paymentDays));
     setDueDateManuallyChanged(Boolean(invoice?.dueAt));
+    setDocumentType(invoice?.type || "rechnung");
+    setInstallmentEnabled(Boolean(invoice?.installmentEnabled));
+    setInstallmentMonths(Math.max(1, Number(invoice?.installmentMonths) || 3));
+    setInstallmentAmount(Math.max(0, Number(invoice?.installmentAmount) || 0));
+    setInstallmentStartDate(invoice?.installmentStartDate || nextIssuedDate);
     setOpen(true);
   }
 
@@ -2516,9 +2553,7 @@ function InvoiceManager({
       );
       return;
     }
-    const category = /ersatzteil|\bteil\b/i.test(transcript)
-      ? "part"
-      : "service";
+    const category = /ersatzteil|\bteil\b/i.test(transcript) ? "part" : "service";
     const item: InvoiceItem = {
       category,
       description,
@@ -2846,7 +2881,8 @@ function InvoiceManager({
                   Dokumenttyp
                   <select
                     name="type"
-                    defaultValue="rechnung"
+                    value={documentType}
+                    onChange={(event) => setDocumentType(event.target.value)}
                   >
                     <option value="rechnung">Rechnung</option>
                     <option value="kostenvoranschlag">Kostenvoranschlag</option>
@@ -2928,9 +2964,7 @@ function InvoiceManager({
                     onChange={(e) => updateItem(index, { unit: e.target.value })}
                   >
                     {invoiceUnits.map((unit) => (
-                      <option key={unit} value={unit}>
-                        {unit}
-                      </option>
+                      <option key={unit} value={unit}>{unit}</option>
                     ))}
                   </select>
                   <Input
@@ -3005,12 +3039,7 @@ function InvoiceManager({
                     setIssuedDate(nextDate);
                     if (serviceDate === previousDate) setServiceDate(nextDate);
                     if (!dueDateManuallyChanged && nextDate) {
-                      setDueDate(
-                        addCalendarDays(
-                          nextDate,
-                          Math.max(0, Number(settings.paymentDays) || 14),
-                        ),
-                      );
+                      setDueDate(addCalendarDays(nextDate, Math.max(0, Number(settings.paymentDays) || 14)));
                     }
                   }}
                   required
@@ -3040,6 +3069,79 @@ function InvoiceManager({
                 />
               </label>
             </div>
+            {documentType === "rechnung" && (
+              <section className="installment-card">
+                <label className="installment-toggle">
+                  <input
+                    type="checkbox"
+                    name="installmentEnabled"
+                    checked={installmentEnabled}
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setInstallmentEnabled(enabled);
+                      if (enabled) {
+                        setInstallmentStartDate(dueDate || issuedDate);
+                        if (!installmentAmount) {
+                          setInstallmentAmount(
+                            Math.round(((subtotal + vatAmount) / installmentMonths) * 100) / 100,
+                          );
+                        }
+                      }
+                    }}
+                  />
+                  Ratenzahlung vereinbaren
+                </label>
+                {installmentEnabled && (
+                  <>
+                    <div className="form-grid installment-fields">
+                      <label>
+                        Laufzeit in Monaten
+                        <Input
+                          name="installmentMonths"
+                          type="number"
+                          min="1"
+                          max="120"
+                          value={installmentMonths}
+                          onChange={(event) => {
+                            const months = Math.max(1, Number(event.target.value) || 1);
+                            setInstallmentMonths(months);
+                            setInstallmentAmount(
+                              Math.round(((subtotal + vatAmount) / months) * 100) / 100,
+                            );
+                          }}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Monatliche Rate (€)
+                        <Input
+                          name="installmentAmount"
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={installmentAmount}
+                          onChange={(event) => setInstallmentAmount(Number(event.target.value))}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Erste Rate fällig am
+                        <Input
+                          name="installmentStartDate"
+                          type="date"
+                          value={installmentStartDate}
+                          onChange={(event) => setInstallmentStartDate(event.target.value)}
+                          required
+                        />
+                      </label>
+                    </div>
+                    <small className="installment-hint">
+                      Danach monatlich zum gleichen Kalendertag. Vereinbart: {installmentMonths} × {euro.format(installmentAmount)} = {euro.format(installmentMonths * installmentAmount)}.
+                    </small>
+                  </>
+                )}
+              </section>
+            )}
             <label>
               Zahlungsart
               <select
@@ -3095,6 +3197,10 @@ function InvoiceManager({
                         issuedAt: issuedDate,
                         serviceDate,
                         dueAt: dueDate,
+                        installmentEnabled,
+                        installmentMonths,
+                        installmentAmount,
+                        installmentStartDate,
                       })
                     }
                   >
@@ -3230,10 +3336,7 @@ function InvoicePrintSheet({
         <dl className="invoice-document-meta">
           <div><dt>Rechnungsnummer</dt><dd>{invoice.number}</dd></div>
           <div><dt>Rechnungsdatum</dt><dd>{formatDate(issuedAt)}</dd></div>
-          <div>
-            <dt>Leistungsdatum</dt>
-            <dd>{formatDate(invoice.serviceDate || order?.date || issuedAt)}</dd>
-          </div>
+          <div><dt>Leistungsdatum</dt><dd>{formatDate(invoice.serviceDate || order?.date || issuedAt)}</dd></div>
           {invoice.dueAt && <div><dt>Fällig am</dt><dd>{formatDate(invoice.dueAt)}</dd></div>}
         </dl>
       </section>
@@ -3325,6 +3428,14 @@ function InvoicePrintSheet({
               {invoice.paymentMethod === "bar"
                 ? " bar bezahlt."
                 : " per Überweisung bezahlt."}
+            </p>
+          ) : invoice.installmentEnabled ? (
+            <p>
+              Vereinbarte Ratenzahlung: {invoice.installmentMonths} monatliche
+              Raten zu je {euro.format(Number(invoice.installmentAmount || 0))},
+              erstmals fällig am {formatDate(invoice.installmentStartDate)} und
+              danach monatlich zum gleichen Kalendertag. Bitte bei jeder Zahlung
+              die Rechnungsnummer <strong>{invoice.number}</strong> angeben.
             </p>
           ) : invoice.paymentMethod === "bar" ? (
             <p>Der Gesamtbetrag ist bar zu zahlen.</p>
@@ -4250,18 +4361,13 @@ function SettingsForm({ flash }: { flash: (message: string) => void }) {
     setResetting(true);
     try {
       const response = await fetch("/api/invoices/reset", { method: "POST" });
-      const result = (await response.json().catch(() => null)) as {
-        deleted?: number;
-        error?: string;
-      } | null;
+      const result = (await response.json().catch(() => null)) as { deleted?: number; error?: string } | null;
       if (!response.ok) {
         flash(result?.error ?? "Testdokumente konnten nicht zurückgesetzt werden");
         return;
       }
       setResetOpen(false);
-      flash(
-        `${result?.deleted ?? 0} Testdokument${result?.deleted === 1 ? " wurde" : "e wurden"} gelöscht. Die Nummerierung beginnt wieder bei 0001.`,
-      );
+      flash(`${result?.deleted ?? 0} Testdokument${result?.deleted === 1 ? " wurde" : "e wurden"} gelöscht. Die Nummerierung beginnt wieder bei 0001.`);
     } catch {
       flash("Testdokumente konnten nicht zurückgesetzt werden");
     } finally {
@@ -4338,17 +4444,9 @@ function SettingsForm({ flash }: { flash: (message: string) => void }) {
       <section className="settings-danger-zone">
         <div>
           <h3>Testphase zurücksetzen</h3>
-          <p>
-            Löscht alle Beispielrechnungen und Kostenvoranschläge. Kunden,
-            Fahrzeuge, Termine, Lager und Firmendaten bleiben erhalten. Die
-            Nummerierung beginnt anschließend wieder bei 0001.
-          </p>
+          <p>Alle Beispielrechnungen und Kostenvoranschläge löschen und die Nummerierung wieder bei 0001 beginnen. Kunden, Fahrzeuge, Termine, Lager und Firmendaten bleiben erhalten.</p>
         </div>
-        <Button
-          type="button"
-          variant="destructive"
-          onClick={() => setResetOpen(true)}
-        >
+        <Button type="button" variant="destructive" onClick={() => setResetOpen(true)}>
           Rechnungen zurücksetzen
         </Button>
       </section>
@@ -4356,22 +4454,11 @@ function SettingsForm({ flash }: { flash: (message: string) => void }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Alle Testdokumente löschen?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Alle Rechnungen und Kostenvoranschläge einschließlich ihrer
-              Positionen werden dauerhaft gelöscht. Dieser Vorgang kann nicht
-              rückgängig gemacht werden. Die nächste Nummer beginnt wieder bei
-              0001.
-            </AlertDialogDescription>
+            <AlertDialogDescription>Alle Rechnungen und Kostenvoranschläge einschließlich ihrer Positionen werden dauerhaft gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={resetting}>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={resetting}
-              onClick={(event) => {
-                event.preventDefault();
-                void resetTestDocuments();
-              }}
-            >
+            <AlertDialogAction variant="destructive" disabled={resetting} onClick={(event) => { event.preventDefault(); void resetTestDocuments(); }}>
               {resetting ? "Wird zurückgesetzt …" : "Ja, Testdaten löschen"}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -28,6 +28,10 @@ type InvoicePayload = {
   dueAt?: string;
   issuedAt?: string;
   serviceDate?: string;
+  installmentEnabled?: boolean | string;
+  installmentMonths?: number | string;
+  installmentAmount?: number | string;
+  installmentStartDate?: string;
   vatEnabled?: boolean;
   vatRate?: number | string;
   paymentMethod?: string;
@@ -95,8 +99,24 @@ export async function POST(request: Request) {
   const serviceDate = validDate(payload.serviceDate)
     ? payload.serviceDate!
     : issuedAt;
+  const installmentEnabled =
+    type === "rechnung" &&
+    (payload.installmentEnabled === true || payload.installmentEnabled === "on");
+  const installmentMonths = installmentEnabled
+    ? Math.max(1, Math.round(Number(payload.installmentMonths) || 1))
+    : null;
+  const installmentAmount = installmentEnabled
+    ? Math.max(0.01, Number(payload.installmentAmount) || 0)
+    : null;
+  const installmentStartDate = installmentEnabled && validDate(payload.installmentStartDate)
+    ? payload.installmentStartDate!
+    : null;
   const calculated = totals(items, vatEnabled, vatRate);
-  if (!items.length || calculated.subtotal <= 0)
+  if (
+    !items.length ||
+    calculated.subtotal <= 0 ||
+    (installmentEnabled && (!installmentStartDate || !installmentAmount))
+  )
     return Response.json({ error: "Bitte mindestens eine gültige Position angeben" }, { status: 400 });
 
   const result = await updateState((state) => {
@@ -144,6 +164,8 @@ export async function POST(request: Request) {
       amount: calculated.amount,
       status: type === "kostenvoranschlag" ? "entwurf" : paidNow ? "bezahlt" : "offen",
       dueAt, issuedAt, serviceDate,
+      installmentEnabled, installmentMonths, installmentAmount,
+      installmentStartDate,
       paidAt: paidNow ? today : null, paymentMethod, vatEnabled, vatRate,
     };
     state.invoices.push(invoice);
@@ -173,8 +195,25 @@ export async function PUT(request: Request) {
   const serviceDate = validDate(payload.serviceDate)
     ? payload.serviceDate!
     : issuedAt;
+  const installmentEnabled =
+    payload.installmentEnabled === true || payload.installmentEnabled === "on";
+  const installmentMonths = installmentEnabled
+    ? Math.max(1, Math.round(Number(payload.installmentMonths) || 1))
+    : null;
+  const installmentAmount = installmentEnabled
+    ? Math.max(0.01, Number(payload.installmentAmount) || 0)
+    : null;
+  const installmentStartDate = installmentEnabled && validDate(payload.installmentStartDate)
+    ? payload.installmentStartDate!
+    : null;
   const calculated = totals(items, vatEnabled, vatRate);
-  if (!Number.isInteger(id) || !items.length || calculated.subtotal <= 0 || !allowedStatuses.includes(payload.status ?? ""))
+  if (
+    !Number.isInteger(id) ||
+    !items.length ||
+    calculated.subtotal <= 0 ||
+    !allowedStatuses.includes(payload.status ?? "") ||
+    (installmentEnabled && (!installmentStartDate || !installmentAmount))
+  )
     return Response.json({ error: "Bitte gültige Positionen und einen Status angeben" }, { status: 400 });
   const result = await updateState((state) => {
     const index = state.invoices.findIndex((item) => item.id === id);
@@ -186,6 +225,8 @@ export async function PUT(request: Request) {
       dueAt: validDate(payload.dueAt) ? payload.dueAt! : existing.dueAt,
       issuedAt: issuedAt ?? existing.issuedAt,
       serviceDate: serviceDate ?? existing.serviceDate ?? existing.issuedAt,
+      installmentEnabled, installmentMonths, installmentAmount,
+      installmentStartDate,
       paidAt, paymentMethod, vatEnabled, vatRate,
     };
     state.invoiceItems = state.invoiceItems.filter((item) => item.invoiceId !== id);
@@ -205,7 +246,6 @@ export async function PATCH(request: Request) {
   const status = payload.status ?? "";
   if (!Number.isInteger(id) || !allowedStatuses.includes(status))
     return Response.json({ error: "Ungültiger Rechnungsstatus" }, { status: 400 });
-
   const invoice = await updateState((state) => {
     const index = state.invoices.findIndex((item) => item.id === id);
     if (index < 0) return null;
@@ -220,7 +260,6 @@ export async function PATCH(request: Request) {
     };
     return state.invoices[index];
   });
-
   return invoice
     ? Response.json({ invoice })
     : Response.json({ error: "Dokument wurde nicht gefunden" }, { status: 404 });

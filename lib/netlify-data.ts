@@ -71,6 +71,10 @@ export type InvoiceRecord = {
   dueAt: string | null;
   issuedAt: string;
   serviceDate?: string | null;
+  installmentEnabled?: boolean;
+  installmentMonths?: number | null;
+  installmentAmount?: number | null;
+  installmentStartDate?: string | null;
   paidAt: string | null;
   paymentMethod: string;
   vatEnabled: boolean;

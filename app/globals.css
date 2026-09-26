@@ -148,21 +148,9 @@ body {
   border-radius: 12px;
   background: #fff7f7;
 }
-.settings-danger-zone h3 {
-  margin: 0 0 6px;
-  color: #991b1b;
-  font-size: 15px;
-}
-.settings-danger-zone p {
-  max-width: 680px;
-  margin: 0;
-  color: #6b2830;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.settings-danger-zone button {
-  flex: 0 0 auto;
-}
+.settings-danger-zone h3 { margin: 0 0 6px; color: #991b1b; font-size: 15px; }
+.settings-danger-zone p { max-width: 680px; margin: 0; color: #6b2830; font-size: 13px; line-height: 1.5; }
+.settings-danger-zone button { flex: 0 0 auto; }
 @media (max-width: 650px) {
   .settings-grid {
     grid-template-columns: 1fr;
@@ -170,14 +158,8 @@ body {
   .settings-card {
     padding: 17px;
   }
-  .settings-danger-zone {
-    align-items: stretch;
-    flex-direction: column;
-    padding: 17px;
-  }
-  .settings-danger-zone button {
-    width: 100%;
-  }
+  .settings-danger-zone { align-items: stretch; flex-direction: column; padding: 17px; }
+  .settings-danger-zone button { width: 100%; }
 }
 
 .order-form select {
@@ -238,9 +220,7 @@ body {
   gap: 3px;
   white-space: nowrap;
 }
-.vehicle-inspection-dates small {
-  color: #526176;
-}
+.vehicle-inspection-dates small { color: #526176; }
 .clickable-row {
   cursor: pointer;
   transition: background 0.15s;
@@ -925,6 +905,11 @@ header h1 {
   background: #e8f1ff;
   color: #2166e8;
 }
+.round.orange {
+  background: #fff1dc;
+  color: #a95b00;
+  font-size: 11px;
+}
 .reminders p {
   display: flex;
   flex-direction: column;
@@ -1577,27 +1562,12 @@ header h1 {
   cursor: pointer;
 }
 .invoice-status-select.offen,
-.invoice-status-select.entwurf {
-  border-color: #f2d49f;
-  background: #fff2dc;
-  color: #a9600d;
-}
+.invoice-status-select.entwurf { border-color: #f2d49f; background: #fff2dc; color: #a9600d; }
 .invoice-status-select.bezahlt,
-.invoice-status-select.angenommen {
-  border-color: #b6e6cd;
-  background: #e3f8ed;
-  color: #178554;
-}
+.invoice-status-select.angenommen { border-color: #b6e6cd; background: #e3f8ed; color: #178554; }
 .invoice-status-select.storniert,
-.invoice-status-select.abgelehnt {
-  border-color: #f3c2c2;
-  background: #fee9e9;
-  color: #bb3434;
-}
-.invoice-status-select:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
+.invoice-status-select.abgelehnt { border-color: #f3c2c2; background: #fee9e9; color: #bb3434; }
+.invoice-status-select:disabled { cursor: wait; opacity: 0.65; }
 .invoice-editor-dialog {
   width: min(920px, calc(100vw - 28px));
   max-width: 920px;
@@ -1616,15 +1586,15 @@ header h1 {
   justify-content: space-between;
   gap: 8px;
 }
+.invoice-items-head button svg {
+  width: 15px;
+}
 .invoice-primary-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-left: auto;
-}
-.invoice-items-head button svg {
-  width: 15px;
 }
 .invoice-item-row {
   display: grid;
@@ -1656,6 +1626,21 @@ header h1 {
 .remove-invoice-item svg {
   width: 15px;
 }
+.installment-card {
+  padding: 14px;
+  border: 1px solid #c9d9ee;
+  border-radius: 10px;
+  background: #f6f9fe;
+}
+.installment-toggle {
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  color: #1f4f8f;
+}
+.installment-toggle input { width: 17px; height: 17px; margin: 0; }
+.installment-fields { grid-template-columns: repeat(3, 1fr); margin-top: 14px; }
+.installment-hint { display: block; margin-top: 10px; color: #50627b; line-height: 1.45; }
 .vat-controls {
   display: flex;
   align-items: end;
@@ -1801,9 +1786,8 @@ header h1 {
     width: 100%;
     margin-left: 0;
   }
-  .invoice-primary-actions button {
-    width: 100%;
-  }
+  .invoice-primary-actions button { width: 100%; }
+  .installment-fields { grid-template-columns: 1fr; }
   .module-toolbar {
     align-items: flex-start;
     flex-direction: column;

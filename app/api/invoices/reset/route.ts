@@ -6,7 +6,6 @@ export async function POST() {
     const linkedWorkOrderIds = new Set(
       state.invoices.map((invoice) => invoice.workOrderId),
     );
-
     state.invoices = [];
     state.invoiceItems = [];
     state.workOrders = state.workOrders.filter(
@@ -14,9 +13,7 @@ export async function POST() {
         !linkedWorkOrderIds.has(order.id) ||
         order.technician !== "Nicht erforderlich",
     );
-
     return { deleted };
   });
-
   return Response.json({ ok: true, ...result });
 }
