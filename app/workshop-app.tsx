@@ -362,9 +362,9 @@ export default function WorkshopApp({ userEmail }: { userEmail: string }) {
             Einstellungen
           </button>
           <div className="profile">
-            <div>TY</div>
+            <div>AAA</div>
             <span>
-              <strong>Tarik Y.</strong>
+              <strong>AAA</strong>
               <small>{userEmail}</small>
             </span>
             <button
@@ -4182,7 +4182,7 @@ const moduleData: Record<string, { head: string[]; rows: string[][] }> = {
       ["Mehmet Yılmaz", "Meister", "3", "92 %", "Aktiv"],
       ["Lena Becker", "Mechatronikerin", "2", "78 %", "Aktiv"],
       ["Ahmet Kaya", "Mechatroniker", "2", "74 %", "Aktiv"],
-      ["Tarik Y.", "Leitung", "1", "65 %", "Aktiv"],
+      ["AAA", "Leitung", "1", "65 %", "Aktiv"],
     ],
   },
   Auswertungen: {
