@@ -1,5 +1,5 @@
+import { getStore } from "@netlify/blobs";
 import { nextId, noCache, readState, updateState } from "../../../lib/netlify-data";
-import { adminBucket } from "../../../lib/firebase-admin";
 
 function values(payload: Record<string, string>) {
   return {
@@ -85,8 +85,6 @@ export async function DELETE(request: Request) {
   if (!result)
     return Response.json({ error: "Fahrzeug wurde nicht gefunden" }, { status: 404 });
   if (result.registrationImageKey)
-    await adminBucket()
-      .file(result.registrationImageKey)
-      .delete({ ignoreNotFound: true });
+    await getStore({ name: "werkstatt-dokumente", region: "eu-central-1" }).delete(result.registrationImageKey);
   return Response.json({ ok: true });
 }

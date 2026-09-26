@@ -1,8 +1,9 @@
+import { getStore } from "@netlify/blobs";
 import { readState, updateState } from "../../../lib/netlify-data";
-import { adminBucket } from "../../../lib/firebase-admin";
 
 const noCache = { "Cache-Control": "private, no-store" };
 const maxBytes = 12 * 1024 * 1024;
+const documents = () => getStore({ name: "werkstatt-dokumente", region: "eu-central-1" });
 
 export async function GET(request: Request) {
   const id = Number(new URL(request.url).searchParams.get("vehicleId"));
@@ -11,14 +12,15 @@ export async function GET(request: Request) {
   const vehicle = state.vehicles.find((item) => item.id === id);
   if (!vehicle?.registrationImageKey)
     return Response.json({ error: "Kein Fahrzeugschein gespeichert" }, { status: 404 });
-  const storedFile = adminBucket().file(vehicle.registrationImageKey);
-  const [exists] = await storedFile.exists();
-  if (!exists) return Response.json({ error: "Foto nicht gefunden" }, { status: 404 });
-  const [contents] = await storedFile.download();
-  return new Response(new Uint8Array(contents), {
+  const object = await documents().getWithMetadata(vehicle.registrationImageKey, {
+    type: "blob",
+    consistency: "strong",
+  });
+  if (!object) return Response.json({ error: "Foto nicht gefunden" }, { status: 404 });
+  return new Response(object.data, {
     headers: {
       ...noCache,
-      "Content-Type": vehicle.registrationImageType || "image/jpeg",
+      "Content-Type": vehicle.registrationImageType || object.data.type || "image/jpeg",
       "Content-Disposition": `inline; filename="${(vehicle.registrationImageName || "fahrzeugschein").replace(/["\\]/g, "")}"`,
     },
   });
@@ -37,11 +39,7 @@ export async function POST(request: Request) {
   if (!existing) return Response.json({ error: "Fahrzeug nicht gefunden" }, { status: 404 });
   const extension = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "") || "jpg";
   const key = `vehicle-registration/${id}/${crypto.randomUUID()}.${extension}`;
-  const storedFile = adminBucket().file(key);
-  await storedFile.save(Buffer.from(await file.arrayBuffer()), {
-    contentType: file.type,
-    metadata: { metadata: { originalName: file.name.slice(0, 180) } },
-  });
+  await documents().set(key, file, { metadata: { contentType: file.type, fileName: file.name.slice(0, 180) } });
   try {
     await updateState((current) => {
       const vehicle = current.vehicles.find((item) => item.id === id);
@@ -51,11 +49,10 @@ export async function POST(request: Request) {
       vehicle.registrationImageType = file.type;
     });
   } catch (error) {
-    await storedFile.delete({ ignoreNotFound: true });
+    await documents().delete(key);
     throw error;
   }
-  if (existing.registrationImageKey)
-    await adminBucket().file(existing.registrationImageKey).delete({ ignoreNotFound: true });
+  if (existing.registrationImageKey) await documents().delete(existing.registrationImageKey);
   return Response.json({ ok: true });
 }
 
@@ -71,6 +68,6 @@ export async function DELETE(request: Request) {
     vehicle.registrationImageType = null;
     return current;
   });
-  if (key) await adminBucket().file(key).delete({ ignoreNotFound: true });
+  if (key) await documents().delete(key);
   return Response.json({ ok: true });
 }

@@ -1,36 +1,21 @@
-import { adminAuth } from "../../../../lib/firebase-admin";
+import { configuredPassword, expectedSessionToken } from "../../../../lib/password-auth";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.FIREBASE_WEB_API_KEY;
-  if (!apiKey)
+  const configured = configuredPassword();
+  if (!configured)
     return Response.json(
-      { error: "In Firebase fehlt FIREBASE_WEB_API_KEY." },
+      { error: "In Netlify fehlt die Umgebungsvariable APP_PASSWORD." },
       { status: 503 },
     );
-  const payload = (await request.json()) as { email?: string; password?: string };
-  const identityResponse = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        email: payload.email?.trim(),
-        password: payload.password,
-        returnSecureToken: true,
-      }),
-    },
-  );
-  if (!identityResponse.ok)
-    return Response.json({ error: "E-Mail-Adresse oder Passwort ist nicht korrekt." }, { status: 401 });
-  const identity = (await identityResponse.json()) as { idToken: string };
-  const token = await adminAuth.createSessionCookie(identity.idToken, {
-    expiresIn: 14 * 24 * 60 * 60 * 1000,
-  });
+  const payload = (await request.json()) as { password?: string };
+  if (payload.password !== configured)
+    return Response.json({ error: "Das Passwort ist nicht korrekt." }, { status: 401 });
+  const token = await expectedSessionToken();
   return Response.json(
     { ok: true },
     {
       headers: {
-        "Set-Cookie": `werkstatt_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=1209600`,
+        "Set-Cookie": `werkstatt_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`,
         "Cache-Control": "no-store",
       },
     },

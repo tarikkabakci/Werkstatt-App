@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth } from "./lib/firebase-admin";
+import { expectedSessionToken } from "./lib/password-auth";
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
@@ -12,13 +12,9 @@ export async function proxy(request: NextRequest) {
     path === "/werkstatt-logo.png"
   ) return NextResponse.next();
 
+  const expected = await expectedSessionToken();
   const supplied = request.cookies.get("werkstatt_session")?.value;
-  if (supplied) {
-    try {
-      await adminAuth.verifySessionCookie(supplied, true);
-      return NextResponse.next();
-    } catch {}
-  }
+  if (expected && supplied === expected) return NextResponse.next();
   if (path.startsWith("/api/"))
     return NextResponse.json({ error: "Nicht angemeldet" }, { status: 401 });
   return NextResponse.redirect(new URL("/login", request.url));

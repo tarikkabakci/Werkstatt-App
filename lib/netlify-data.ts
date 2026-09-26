@@ -1,4 +1,4 @@
-import { adminDb } from "./firebase-admin";
+import { getStore } from "@netlify/blobs";
 
 export type CustomerRecord = {
   id: number;
@@ -133,7 +133,8 @@ const EMPTY_STATE: WorkshopState = {
   settings: null,
 };
 
-const stateDocument = adminDb.collection("werkstatt").doc("state");
+const store = () =>
+  getStore({ name: "werkstatt-manager", region: "eu-central-1" });
 
 function normalized(value: Partial<WorkshopState> | null): WorkshopState {
   return {
@@ -150,25 +151,33 @@ function normalized(value: Partial<WorkshopState> | null): WorkshopState {
 }
 
 export async function readState(): Promise<WorkshopState> {
-  const snapshot = await stateDocument.get();
-  const value = snapshot.exists
-    ? (snapshot.data() as Partial<WorkshopState>)
-    : null;
+  const value = (await store().get("state", {
+    type: "json",
+    consistency: "strong",
+  })) as Partial<WorkshopState> | null;
   return value ? normalized(value) : structuredClone(EMPTY_STATE);
 }
 
 export async function updateState<T>(
   mutate: (state: WorkshopState) => T,
 ): Promise<T> {
-  return adminDb.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(stateDocument);
-    const state = snapshot.exists
-      ? normalized(snapshot.data() as Partial<WorkshopState>)
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const current = await store().getWithMetadata("state", {
+      type: "json",
+      consistency: "strong",
+    });
+    const state = current
+      ? normalized(current.data as Partial<WorkshopState>)
       : structuredClone(EMPTY_STATE);
     const result = mutate(state);
-    transaction.set(stateDocument, state);
-    return result;
-  });
+    const write = await store().setJSON(
+      "state",
+      state,
+      current?.etag ? { onlyIfMatch: current.etag } : { onlyIfNew: true },
+    );
+    if (write.modified) return result;
+  }
+  throw new Error("Die Daten wurden gleichzeitig geändert. Bitte erneut versuchen.");
 }
 
 export function nextId(rows: Array<{ id: number }>) {
