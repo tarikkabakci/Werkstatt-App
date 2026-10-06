@@ -1928,7 +1928,7 @@ header h1 {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 8mm 7mm 12mm;
+    margin: 12mm 7mm 12mm;
   }
   html,
   body {
@@ -1969,9 +1969,9 @@ header h1 {
     flex-direction: column;
     position: static;
     width: 196mm;
-    min-height: 277mm;
+    min-height: 273mm;
     margin: 0;
-    padding: 2mm 5mm 2mm;
+    padding: 3mm 5mm 2mm;
     box-sizing: border-box;
     color: #172033;
     background: white;
